@@ -7,11 +7,8 @@ const singleControls = document.querySelector("#singleControls");
 const cmykControls = document.querySelector("#cmykControls");
 const singleSlider = document.querySelector("#coverageSlider");
 const singleValue = document.querySelector("#coverageValue");
-const lpiSlider = document.querySelector("#lpiSlider");
-const lpiValue = document.querySelector("#lpiValue");
 const ctx = canvas.getContext("2d");
 const paperRgb = [255, 250, 240];
-const lpiSteps = [85, 100, 133, 150, 175, 200];
 // GRACoL2013 CRPC6 CMYK-to-sRGB samples for paper, primaries, and overprints.
 const gracolNeugebauerRgb = [
   [255, 255, 255],
@@ -61,7 +58,6 @@ const inkScreens = [
 
 let mode = "single";
 let singleCoverage = Number(singleSlider.value);
-let currentLpi = lpiSteps[Number(lpiSlider.value)];
 
 function syncSingleControl() {
   singleCoverage = Number(singleSlider.value);
@@ -76,17 +72,6 @@ function syncCmykControls() {
     screen.slider.style.setProperty("--track-fill", `${amount}%`);
     screen.output.textContent = `${amount}%`;
   });
-}
-
-function syncLpiControl() {
-  const stepIndex = Number(lpiSlider.value);
-
-  currentLpi = lpiSteps[stepIndex];
-  lpiSlider.style.setProperty(
-    "--track-fill",
-    `${(stepIndex / (lpiSteps.length - 1)) * 100}%`,
-  );
-  lpiValue.textContent = `${currentLpi} LPI`;
 }
 
 function setMode(nextMode) {
@@ -119,15 +104,6 @@ function resizeCanvas() {
 function drawPaper(width, height) {
   ctx.fillStyle = "#fffaf0";
   ctx.fillRect(0, 0, width, height);
-
-  ctx.globalAlpha = 0.26;
-  ctx.fillStyle = "#cabda8";
-
-  for (let y = 18; y < height; y += 36) {
-    ctx.fillRect(0, y, width, 1);
-  }
-
-  ctx.globalAlpha = 1;
 }
 
 function smoothstep(start, end, current) {
@@ -142,12 +118,6 @@ function getDotRadius(cell, amount) {
   const nearlySolidRadius = cell * 0.69;
 
   return areaRadius + (nearlySolidRadius - areaRadius) * mergeAmount;
-}
-
-function getHalftoneCell(shorterSide) {
-  const baseCell = Math.max(15, Math.min(30, shorterSide / 18));
-
-  return baseCell * (100 / currentLpi);
 }
 
 function blendChannel(start, end, amount) {
@@ -217,62 +187,72 @@ function drawDivider(splitX, height) {
   ctx.fillRect(splitX - 0.5, 0, 1, height);
 }
 
-function drawInkScreen(screen, clip, width, height, cell) {
+// Render one ink screen to its own offscreen canvas using normal compositing,
+// so overlapping dots of the same ink merge into a single flat shape rather
+// than darkening each other. The returned canvas is later composited onto the
+// main canvas with `multiply`, so cross-ink overlaps still darken correctly.
+function renderInkScreen(screen, clip, width, height, cell) {
   const amount = Number(screen.slider?.value ?? screen.amount);
 
   if (amount <= 0) {
-    return;
+    return null;
   }
 
   const ratio = window.devicePixelRatio || 1;
-  const screenCanvas = document.createElement("canvas");
-  const screenCtx = screenCanvas.getContext("2d");
+  const offscreen = document.createElement("canvas");
 
-  screenCanvas.width = Math.ceil(width * ratio);
-  screenCanvas.height = Math.ceil(height * ratio);
-  screenCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
-  screenCtx.beginPath();
-  screenCtx.rect(clip.x, clip.y, clip.width, clip.height);
-  screenCtx.clip();
-  screenCtx.fillStyle = screen.color;
+  offscreen.width = Math.round(width * ratio);
+  offscreen.height = Math.round(height * ratio);
+
+  const offCtx = offscreen.getContext("2d");
+
+  offCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  offCtx.beginPath();
+  offCtx.rect(clip.x, clip.y, clip.width, clip.height);
+  offCtx.clip();
+  offCtx.fillStyle = screen.color;
 
   if (amount >= 100) {
-    screenCtx.fillRect(clip.x, clip.y, clip.width, clip.height);
-    compositeInkScreen(screenCanvas, clip, width, height);
-    return;
+    offCtx.fillRect(clip.x, clip.y, clip.width, clip.height);
+    return offscreen;
   }
 
   const radius = getDotRadius(cell, amount);
 
   if (radius <= 0.08) {
-    return;
+    return null;
   }
 
   const margin = Math.hypot(width, height);
 
-  screenCtx.translate(width / 2, height / 2);
-  screenCtx.rotate((screen.angle * Math.PI) / 180);
-  screenCtx.translate(-width / 2, -height / 2);
+  offCtx.translate(width / 2, height / 2);
+  offCtx.rotate((screen.angle * Math.PI) / 180);
+  offCtx.translate(-width / 2, -height / 2);
 
   for (let y = -margin; y < height + margin; y += cell) {
     for (let x = -margin; x < width + margin; x += cell) {
-      screenCtx.beginPath();
-      screenCtx.arc(x, y, radius, 0, Math.PI * 2);
-      screenCtx.fill();
+      offCtx.beginPath();
+      offCtx.arc(x, y, radius, 0, Math.PI * 2);
+      offCtx.fill();
     }
   }
 
-  compositeInkScreen(screenCanvas, clip, width, height);
+  return offscreen;
 }
 
-function compositeInkScreen(screenCanvas, clip, width, height) {
+function compositeInkScreen(offscreen, width, height) {
+  if (!offscreen) {
+    return;
+  }
+
   ctx.save();
-  ctx.beginPath();
-  ctx.rect(clip.x, clip.y, clip.width, clip.height);
-  ctx.clip();
   ctx.globalCompositeOperation = "multiply";
-  ctx.drawImage(screenCanvas, 0, 0, width, height);
+  ctx.drawImage(offscreen, 0, 0, width, height);
   ctx.restore();
+}
+
+function drawInkScreen(screen, clip, width, height, cell) {
+  compositeInkScreen(renderInkScreen(screen, clip, width, height, cell), width, height);
 }
 
 function drawCmykTone(splitX, width, height) {
@@ -321,7 +301,7 @@ function drawVisualizer() {
   const width = canvas.width / ratio;
   const height = canvas.height / ratio;
   const shorterSide = Math.min(width, height);
-  const cell = getHalftoneCell(shorterSide);
+  const cell = Math.max(15, Math.min(30, shorterSide / 18));
   const splitX = width / 2;
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -356,11 +336,6 @@ singleSlider.addEventListener("input", () => {
   }
 });
 
-lpiSlider.addEventListener("input", () => {
-  syncLpiControl();
-  drawVisualizer();
-});
-
 inkScreens.forEach((screen) => {
   screen.slider.addEventListener("input", () => {
     syncCmykControls();
@@ -375,6 +350,5 @@ window.addEventListener("resize", resizeCanvas);
 
 syncSingleControl();
 syncCmykControls();
-syncLpiControl();
 setMode("single");
 resizeCanvas();

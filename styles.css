@@ -165,8 +165,6 @@ h1 {
 }
 
 .controls-panel {
-  display: grid;
-  gap: 14px;
   min-width: 0;
 }
 
@@ -193,32 +191,6 @@ h1 {
   font-weight: 900;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-}
-
-.lpi-control {
-  --track-color: var(--blue);
-  --thumb-color: var(--blue);
-  display: grid;
-  grid-template-columns: auto minmax(72px, max-content);
-  gap: 8px 10px;
-  min-width: 0;
-  color: #51493d;
-  font-size: 0.82rem;
-  font-weight: 900;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.lpi-control output {
-  justify-self: end;
-  color: #51493d;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-.lpi-control input {
-  grid-column: 1 / -1;
 }
 
 .channel-control output {

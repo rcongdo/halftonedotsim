@@ -1,26 +1,24 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Halftone Dot Visualizer</title>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <main class="app-shell">
       <section class="visualizer" aria-label="Halftone dot preview">
-        <canvas id="halftoneCanvas">
-          This visualization requires a browser that supports HTML5 canvas.
-        </canvas>
+        <canvas id="halftoneCanvas"></canvas>
       </section>
 
-      <form
+      <section
         class="control-strip"
         id="controlStrip"
         data-mode="single"
         aria-label="Halftone controls"
       >
-        <header class="title-group">
+        <div class="title-group">
           <p class="eyebrow">Printed halftone</p>
           <h1 id="modeTitle">Dot coverage</h1>
 
@@ -42,35 +40,13 @@
               CMYK
             </button>
           </div>
-        </header>
+        </div>
 
         <div class="meter" id="singleMeter" aria-live="polite">
           <span id="coverageValue">50</span><span>%</span>
         </div>
 
         <div class="controls-panel">
-          <label class="lpi-control" for="lpiSlider">
-            <span>LPI</span>
-            <output id="lpiValue" for="lpiSlider">100 LPI</output>
-            <input
-              id="lpiSlider"
-              type="range"
-              min="0"
-              max="5"
-              value="1"
-              step="1"
-              list="lpiSteps"
-            >
-          </label>
-          <datalist id="lpiSteps">
-            <option value="0" label="85"></option>
-            <option value="1" label="100"></option>
-            <option value="2" label="133"></option>
-            <option value="3" label="150"></option>
-            <option value="4" label="175"></option>
-            <option value="5" label="200"></option>
-          </datalist>
-
           <div class="single-controls" id="singleControls">
             <label class="slider-control" for="coverageSlider">
               <span>Ink</span>
@@ -81,7 +57,7 @@
                 max="100"
                 value="50"
                 step="1"
-              >
+              />
             </label>
           </div>
 
@@ -97,7 +73,7 @@
                 max="100"
                 value="50"
                 step="1"
-              >
+              />
             </label>
 
             <label class="channel-control channel-magenta" for="magentaSlider">
@@ -111,7 +87,7 @@
                 max="100"
                 value="50"
                 step="1"
-              >
+              />
             </label>
 
             <label class="channel-control channel-yellow" for="yellowSlider">
@@ -125,7 +101,7 @@
                 max="100"
                 value="50"
                 step="1"
-              >
+              />
             </label>
 
             <label class="channel-control channel-black" for="blackSlider">
@@ -139,11 +115,11 @@
                 max="100"
                 value="50"
                 step="1"
-              >
+              />
             </label>
           </div>
         </div>
-      </form>
+      </section>
     </main>
 
     <script src="app.js"></script>
