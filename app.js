@@ -8,6 +8,14 @@ const cmykControls = document.querySelector("#cmykControls");
 const singleSlider = document.querySelector("#coverageSlider");
 const singleValue = document.querySelector("#coverageValue");
 const ctx = canvas.getContext("2d");
+const dotGainInput = document.querySelector("#dotGainInput");
+const minDotInput = document.querySelector("#minDotInput");
+const minDotPrintedInput = document.querySelector("#minDotPrintedInput");
+const dotGainApplyButton = document.querySelector("#dotGainApplyButton");
+const dotGainTrigger = document.querySelector("#dotGainTrigger");
+const dotGainPopover = document.querySelector("#dotGainPopover");
+const lpiSlider = document.querySelector("#lpiSlider");
+const lpiValue = document.querySelector("#lpiValue");
 const paperRgb = [255, 250, 240];
 // GRACoL2013 CRPC6 CMYK-to-sRGB samples for paper, primaries, and overprints.
 const gracolNeugebauerRgb = [
@@ -29,27 +37,42 @@ const gracolNeugebauerRgb = [
   [0, 0, 0],
 ];
 
+// Channel-order index for inkScreens: 0=C, 1=M, 2=Y, 3=K
+const gracolChannelOrder = ["c", "m", "y", "k"];
+
+// G7/GRACoL coated #1 target TVI: extra coverage at 50% file value, per channel.
+const gracolCoatedTviAt50 = {
+  c: 0.12,
+  m: 0.14,
+  y: 0.13,
+  k: 0.18,
+};
+
 const inkScreens = [
   {
     angle: 15,
+    channel: "c",
     color: "rgb(0, 162, 227)",
     output: document.querySelector("#cyanValue"),
     slider: document.querySelector("#cyanSlider"),
   },
   {
     angle: 75,
+    channel: "m",
     color: "rgb(230, 0, 125)",
     output: document.querySelector("#magentaValue"),
     slider: document.querySelector("#magentaSlider"),
   },
   {
     angle: 0,
+    channel: "y",
     color: "rgb(255, 237, 0)",
     output: document.querySelector("#yellowValue"),
     slider: document.querySelector("#yellowSlider"),
   },
   {
     angle: 45,
+    channel: "k",
     color: "rgb(28, 28, 26)",
     output: document.querySelector("#blackValue"),
     slider: document.querySelector("#blackSlider"),
@@ -58,6 +81,43 @@ const inkScreens = [
 
 let mode = "single";
 let singleCoverage = Number(singleSlider.value);
+
+function readDotGainInputs() {
+  return {
+    dotGain: Math.max(0, Number(dotGainInput.value) / 100) || 0,
+    minDot: Math.max(0, Number(minDotInput.value) / 100) || 0,
+    minDotPrinted: Math.max(0, Number(minDotPrintedInput.value) / 100) || 0,
+  };
+}
+
+// Snapshot of last-applied dot-gain values. The renderer reads from this, not
+// from the live inputs, so typing into the inputs doesn't move the visualizer
+// until the user clicks Apply.
+let appliedDotGainParams = readDotGainInputs();
+
+function getDotGainParams() {
+  return appliedDotGainParams;
+}
+
+function dotGainInputsMatchApplied() {
+  const live = readDotGainInputs();
+
+  return (
+    live.dotGain === appliedDotGainParams.dotGain &&
+    live.minDot === appliedDotGainParams.minDot &&
+    live.minDotPrinted === appliedDotGainParams.minDotPrinted
+  );
+}
+
+function syncDotGainApplyButton() {
+  dotGainApplyButton.disabled = dotGainInputsMatchApplied();
+}
+
+function applyDotGainSettings() {
+  appliedDotGainParams = readDotGainInputs();
+  syncDotGainApplyButton();
+  drawVisualizer();
+}
 
 function syncSingleControl() {
   singleCoverage = Number(singleSlider.value);
@@ -72,6 +132,14 @@ function syncCmykControls() {
     screen.slider.style.setProperty("--track-fill", `${amount}%`);
     screen.output.textContent = `${amount}%`;
   });
+}
+
+function syncLpiValue() {
+  const lpi = Number(lpiSlider.value);
+  const fillPercent = ((lpi - 25) / (200 - 25)) * 100;
+
+  lpiSlider.style.setProperty("--track-fill", `${fillPercent}%`);
+  lpiValue.textContent = String(lpi);
 }
 
 function setMode(nextMode) {
@@ -104,21 +172,90 @@ function resizeCanvas() {
 function drawPaper(width, height) {
   ctx.fillStyle = "#fffaf0";
   ctx.fillRect(0, 0, width, height);
-
-  ctx.globalAlpha = 0.26;
-  ctx.fillStyle = "#cabda8";
-
-  for (let y = 18; y < height; y += 36) {
-    ctx.fillRect(0, y, width, 1);
-  }
-
-  ctx.globalAlpha = 1;
 }
 
 function smoothstep(start, end, current) {
   const progress = Math.min(Math.max((current - start) / (end - start), 0), 1);
 
   return progress * progress * (3 - 2 * progress);
+}
+
+function bell(c) {
+  return 4 * c * (1 - c);
+}
+
+function bloomDecay(c, minDotFrac) {
+  const range = 0.5 - minDotFrac;
+
+  if (range <= 0) {
+    return 0;
+  }
+
+  const t = (c - minDotFrac) / range;
+
+  return Math.max(0, Math.min(1, 1 - t));
+}
+
+// Per-channel scale factor for the press-model spread term, derived from
+// GRACoL coated TVI ratios. At default Dot Gain = 18% (= K's GRACoL TVI),
+// each channel's effective gain matches its GRACoL value, so the press
+// half matches the reference half. As the user dials Dot Gain up, all
+// channels scale proportionally — modelling the reality that processes
+// with more midtone K gain also have proportionally more C/M/Y gain.
+function pressChannelScale(channel) {
+  const channelTvi = gracolCoatedTviAt50[channel];
+
+  if (channelTvi === undefined || gracolCoatedTviAt50.k === 0) {
+    return 1;
+  }
+
+  return channelTvi / gracolCoatedTviAt50.k;
+}
+
+function pressEffectiveCoverage(cFrac, params, channelScale) {
+  if (cFrac <= 0) {
+    return 0;
+  }
+
+  if (cFrac < params.minDot) {
+    return 0;
+  }
+
+  if (cFrac >= 1) {
+    return 1;
+  }
+
+  const scale = channelScale ?? 1;
+  const bloomAmplitude = Math.max(0, params.minDotPrinted - params.minDot);
+  const bloomTerm = bloomAmplitude * bloomDecay(cFrac, params.minDot);
+  const spreadTerm = params.dotGain * scale * bell(cFrac);
+
+  return Math.min(1, cFrac + bloomTerm + spreadTerm);
+}
+
+function pressEffectiveAmount(rawAmount, channelScale) {
+  const cFrac = rawAmount / 100;
+  const effective = pressEffectiveCoverage(
+    cFrac,
+    getDotGainParams(),
+    channelScale,
+  );
+
+  return effective * 100;
+}
+
+function applyGracolTvi(cFrac, channel) {
+  if (cFrac <= 0) {
+    return 0;
+  }
+
+  if (cFrac >= 1) {
+    return 1;
+  }
+
+  const tviAt50 = gracolCoatedTviAt50[channel] ?? 0;
+
+  return Math.min(1, cFrac + tviAt50 * bell(cFrac));
 }
 
 function getDotRadius(cell, amount) {
@@ -158,21 +295,10 @@ function getPaperRelativeRgb(rgb) {
   );
 }
 
-function getSingleToneColor() {
-  const amount = singleCoverage / 100;
-  const red = blendChannel(255, 16, amount);
-  const green = blendChannel(250, 16, amount);
-  const blue = blendChannel(240, 16, amount);
-
-  return `rgb(${red}, ${green}, ${blue})`;
-}
-
-function getScreenCoverages() {
-  return inkScreens.map((screen) => Number(screen.slider.value) / 100);
-}
-
-function getProfiledCmykToneColor() {
-  const coverages = getScreenCoverages();
+// Linear-light Neugebauer mix over the GRACoL 16 primaries. Used by both the
+// CMYK and single-K reference tone so the two modes produce visually
+// consistent right-side colors at the same effective coverage.
+function neugebauerToneColor(coverages) {
   const linearRgb = [0, 0, 0];
 
   gracolNeugebauerRgb.forEach((rgb, mask) => {
@@ -191,28 +317,207 @@ function getProfiledCmykToneColor() {
   )}, ${toSrgbValue(linearRgb[2])})`;
 }
 
-function drawDivider(splitX, height) {
-  ctx.fillStyle = "rgba(16, 16, 16, 0.18)";
+function getSingleToneColor() {
+  return neugebauerToneColor([0, 0, 0, applyGracolTvi(singleCoverage / 100, "k")]);
+}
+
+function getScreenCoverages() {
+  return inkScreens.map((screen) => Number(screen.slider.value) / 100);
+}
+
+function getGracolReferenceCoverages() {
+  return inkScreens.map((screen, index) => {
+    const raw = Number(screen.slider.value) / 100;
+
+    return applyGracolTvi(raw, gracolChannelOrder[index]);
+  });
+}
+
+function getProfiledCmykToneColor() {
+  return neugebauerToneColor(getGracolReferenceCoverages());
+}
+
+// Press-effective tone colors. Drive the crossfade target on the halftone
+// (left) side at high LPI so it reflects the user's dot-gain settings,
+// independently of the GRACoL reference color shown on the right side.
+function getPressSingleToneColor() {
+  const params = getDotGainParams();
+  const effective = pressEffectiveCoverage(singleCoverage / 100, params);
+
+  return neugebauerToneColor([0, 0, 0, effective]);
+}
+
+function getPressCmykToneColor() {
+  const params = getDotGainParams();
+  const coverages = inkScreens.map((screen) => {
+    const raw = Number(screen.slider.value) / 100;
+
+    return pressEffectiveCoverage(raw, params, pressChannelScale(screen.channel));
+  });
+
+  return neugebauerToneColor(coverages);
+}
+
+// High-LPI smoothing crossfade alpha: 0 at cell >= 4, ramping to 1 at cell <= 3.
+// Used by the crossfade overlay, the divider fade, and the ink-screen skip
+// optimization so all three agree on when the halftone half is fully replaced
+// by the predicted reference color.
+function highLpiCrossfadeAlpha(cell) {
+  return Math.max(0, Math.min(1, (4 - cell) / 1));
+}
+
+function drawDivider(splitX, height, cell) {
+  // Fade the divider in lockstep with the crossfade. When the halftone half
+  // is being smoothed toward the reference color, a visible divider creates
+  // simultaneous-contrast illusions that make identical tones appear
+  // different. When dot gain is high enough that the halves are genuinely
+  // different colors, the color step itself marks the boundary.
+  const dividerOpacity = 0.18 * (1 - highLpiCrossfadeAlpha(cell));
+
+  if (dividerOpacity <= 0) {
+    return;
+  }
+
+  ctx.fillStyle = `rgba(16, 16, 16, ${dividerOpacity})`;
   ctx.fillRect(splitX - 0.5, 0, 1, height);
+}
+
+// At very high LPI the geometric dot rendering can't physically dissolve into
+// solid tone (pixel floor stops cells shrinking past 2 px). We crossfade the
+// halftone half toward the predicted reference color as cells go below 4 px,
+// so the slider's top end actually reaches "indistinguishable from the right
+// side" as the spec requires.
+function drawHighLpiSmoothing(toneColor, splitX, height, cell) {
+  const alpha = highLpiCrossfadeAlpha(cell);
+
+  if (alpha <= 0) {
+    return;
+  }
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = toneColor;
+  ctx.fillRect(0, 0, splitX, height);
+  ctx.restore();
 }
 
 // Render one ink screen to its own offscreen canvas using normal compositing,
 // so overlapping dots of the same ink merge into a single flat shape rather
 // than darkening each other. The returned canvas is later composited onto the
 // main canvas with `multiply`, so cross-ink overlaps still darken correctly.
+// Pool of offscreen canvases keyed by channel. Reused across draws so we
+// don't allocate a new canvas (and its backing GPU memory) on every input
+// event during a slider drag.
+const offscreenPool = new Map();
+
+function acquireOffscreen(channel, deviceWidth, deviceHeight) {
+  const key = channel ?? "single";
+  let offscreen = offscreenPool.get(key);
+
+  if (!offscreen) {
+    offscreen = document.createElement("canvas");
+    offscreenPool.set(key, offscreen);
+  }
+
+  if (offscreen.width !== deviceWidth || offscreen.height !== deviceHeight) {
+    // Setting width/height auto-clears the bitmap and resets transforms.
+    offscreen.width = deviceWidth;
+    offscreen.height = deviceHeight;
+  } else {
+    const offCtx = offscreen.getContext("2d");
+
+    offCtx.setTransform(1, 0, 0, 1, 0, 0);
+    offCtx.clearRect(0, 0, deviceWidth, deviceHeight);
+  }
+
+  return offscreen;
+}
+
+// Build a tileable dot pattern (cell × cell device pixels) for the given
+// color and dot radius. Drawn once per (color, cell, radius) combination
+// and reused — far cheaper than iterating hundreds of thousands of arcs
+// across the full offscreen on every frame.
+//
+// Layout: one centered dot, plus dots at the four corners. When the tile
+// repeats, the corner dots stitch together with their neighbors to form
+// continuous boundary dots. This handles both isolated-dot and overlapping
+// (high-coverage) regimes correctly.
+const patternCache = new Map();
+
+// Pattern supersample factor. The tile is rendered at `PATTERN_SUPERSAMPLE`
+// times the device-pixel cell size, then scaled back down at fill time via
+// pattern.setTransform. Bilinear sampling through the rotation now has 4x
+// more source pixels per output pixel, keeping rotated dot edges crisp at
+// low LPI where individual dots are clearly visible.
+const PATTERN_SUPERSAMPLE = 2;
+
+function getDotPattern(color, cell, radius, ratio) {
+  const cacheKey = `${color}|${cell.toFixed(3)}|${radius.toFixed(3)}|${ratio}`;
+  const cached = patternCache.get(cacheKey);
+
+  if (cached) {
+    return cached;
+  }
+
+  const deviceCell = Math.max(2, Math.round(cell * ratio));
+  const tileCell = deviceCell * PATTERN_SUPERSAMPLE;
+  const tileRadius = Math.max(0.5, radius * ratio * PATTERN_SUPERSAMPLE);
+  const pCanvas = document.createElement("canvas");
+
+  pCanvas.width = tileCell;
+  pCanvas.height = tileCell;
+
+  const pCtx = pCanvas.getContext("2d");
+
+  pCtx.fillStyle = color;
+  pCtx.beginPath();
+
+  // Four corner dots — each corner is shared by 4 tiles, and the four
+  // quarter-circles stitch together when tiled to form one full dot per
+  // grid position with spacing `cell`. This single shape works correctly
+  // for all radius values: separated dots when r < cell/2, partial
+  // overlap when r > cell/2, full coverage as r approaches cell. (The
+  // previous "center + corners when overlapping" approach double-counted
+  // dots above r = cell/2 and rendered as solid ink past ~58% effective
+  // coverage.)
+  const corners = [
+    [0, 0],
+    [tileCell, 0],
+    [0, tileCell],
+    [tileCell, tileCell],
+  ];
+
+  for (const [cx, cy] of corners) {
+    pCtx.moveTo(cx + tileRadius, cy);
+    pCtx.arc(cx, cy, tileRadius, 0, Math.PI * 2);
+  }
+
+  pCtx.fill();
+
+  // Cap the cache so a long slider drag (constantly changing radius) doesn't
+  // accumulate unbounded canvas allocations.
+  if (patternCache.size > 64) {
+    patternCache.clear();
+  }
+  patternCache.set(cacheKey, pCanvas);
+
+  return pCanvas;
+}
+
 function renderInkScreen(screen, clip, width, height, cell) {
-  const amount = Number(screen.slider?.value ?? screen.amount);
+  const rawAmount = Number(screen.slider?.value ?? screen.amount);
+  const amount = pressEffectiveAmount(rawAmount, pressChannelScale(screen.channel));
 
   if (amount <= 0) {
     return null;
   }
 
   const ratio = window.devicePixelRatio || 1;
-  const offscreen = document.createElement("canvas");
-
-  offscreen.width = Math.round(width * ratio);
-  offscreen.height = Math.round(height * ratio);
-
+  const offscreen = acquireOffscreen(
+    screen.channel,
+    Math.round(width * ratio),
+    Math.round(height * ratio),
+  );
   const offCtx = offscreen.getContext("2d");
 
   offCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
@@ -232,19 +537,35 @@ function renderInkScreen(screen, clip, width, height, cell) {
     return null;
   }
 
-  const margin = Math.hypot(width, height);
+  // Minimum margin to cover the canvas after rotation: for any rotation
+  // around center, the worst-case overhang per axis is (diagonal - dim) / 2.
+  const diagonal = Math.hypot(width, height);
+  const margin = Math.ceil(Math.max(diagonal - width, diagonal - height) / 2 + cell);
 
   offCtx.translate(width / 2, height / 2);
   offCtx.rotate((screen.angle * Math.PI) / 180);
   offCtx.translate(-width / 2, -height / 2);
 
-  for (let y = -margin; y < height + margin; y += cell) {
-    for (let x = -margin; x < width + margin; x += cell) {
-      offCtx.beginPath();
-      offCtx.arc(x, y, radius, 0, Math.PI * 2);
-      offCtx.fill();
-    }
+  // Fill the rotated area with a cached dot pattern. One fillRect replaces
+  // hundreds of thousands of arc calls — the browser's pattern tile path
+  // is native and stays sub-millisecond regardless of cell size.
+  const patternCanvas = getDotPattern(screen.color, cell, radius, ratio);
+  const pattern = offCtx.createPattern(patternCanvas, "repeat");
+
+  // Scale the supersampled tile back down to the cell pitch. The pattern
+  // source is `PATTERN_SUPERSAMPLE × deviceCell` pixels; rendering at
+  // 1/PATTERN_SUPERSAMPLE puts the tile pitch exactly at `cell` CSS pixels,
+  // with crisper edges than rendering at the source size.
+  if (pattern.setTransform) {
+    pattern.setTransform(
+      new DOMMatrix().scaleSelf(1 / PATTERN_SUPERSAMPLE),
+    );
   }
+
+  offCtx.imageSmoothingEnabled = true;
+  offCtx.imageSmoothingQuality = "high";
+  offCtx.fillStyle = pattern;
+  offCtx.fillRect(-margin, -margin, width + 2 * margin, height + 2 * margin);
 
   return offscreen;
 }
@@ -279,38 +600,48 @@ function drawSingleView(width, height, cell, splitX) {
     return;
   }
 
-  drawInkScreen(
-    { amount: singleCoverage, angle: -16, color: "#101010" },
-    { height, width: splitX, x: 0, y: 0 },
-    width,
-    height,
-    cell,
-  );
-  drawDivider(splitX, height);
-}
-
-function drawCmykView(width, height, cell, splitX) {
-  drawCmykTone(splitX, width, height);
-
-  inkScreens.forEach((screen) => {
+  // Skip ink-screen rendering entirely when the crossfade fully covers it.
+  // At LPI 200 (cell = 3) this saves tens of thousands of arc draws plus a
+  // blur filter pass that the user would never have seen anyway.
+  if (highLpiCrossfadeAlpha(cell) < 1) {
     drawInkScreen(
-      screen,
+      { amount: singleCoverage, angle: 45, channel: "k", color: "#101010" },
       { height, width: splitX, x: 0, y: 0 },
       width,
       height,
       cell,
     );
-  });
+  }
+  drawHighLpiSmoothing(getPressSingleToneColor(), splitX, height, cell);
+  drawDivider(splitX, height, cell);
+}
 
-  drawDivider(splitX, height);
+function drawCmykView(width, height, cell, splitX) {
+  drawCmykTone(splitX, width, height);
+
+  // Same skip — four channels' worth of dots + blurs avoided at full crossfade.
+  if (highLpiCrossfadeAlpha(cell) < 1) {
+    inkScreens.forEach((screen) => {
+      drawInkScreen(
+        screen,
+        { height, width: splitX, x: 0, y: 0 },
+        width,
+        height,
+        cell,
+      );
+    });
+  }
+
+  drawHighLpiSmoothing(getPressCmykToneColor(), splitX, height, cell);
+  drawDivider(splitX, height, cell);
 }
 
 function drawVisualizer() {
   const ratio = window.devicePixelRatio || 1;
   const width = canvas.width / ratio;
   const height = canvas.height / ratio;
-  const shorterSide = Math.min(width, height);
-  const cell = Math.max(15, Math.min(30, shorterSide / 18));
+  const lpi = Number(lpiSlider.value);
+  const cell = Math.max(2, 600 / lpi);
   const splitX = width / 2;
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -337,11 +668,28 @@ modeButtons.forEach((button) => {
   });
 });
 
+// Coalesce rapid-fire slider events into one draw per frame. Without this,
+// dragging a slider at >60 events/sec can queue more drawVisualizer() calls
+// than the browser can finish, causing input lag. With rAF throttling we
+// render at most once per frame regardless of input rate.
+let drawScheduled = false;
+function requestDraw() {
+  if (drawScheduled) {
+    return;
+  }
+
+  drawScheduled = true;
+  requestAnimationFrame(() => {
+    drawScheduled = false;
+    drawVisualizer();
+  });
+}
+
 singleSlider.addEventListener("input", () => {
   syncSingleControl();
 
   if (mode === "single") {
-    drawVisualizer();
+    requestDraw();
   }
 });
 
@@ -350,14 +698,75 @@ inkScreens.forEach((screen) => {
     syncCmykControls();
 
     if (mode === "cmyk") {
-      drawVisualizer();
+      requestDraw();
     }
   });
+});
+
+[dotGainInput, minDotInput, minDotPrintedInput].forEach((input) => {
+  input.addEventListener("input", syncDotGainApplyButton);
+  input.addEventListener("change", syncDotGainApplyButton);
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !dotGainApplyButton.disabled) {
+      event.preventDefault();
+      applyDotGainSettings();
+    }
+  });
+});
+
+dotGainApplyButton.addEventListener("click", applyDotGainSettings);
+
+function isDotGainPopoverOpen() {
+  return dotGainTrigger.getAttribute("aria-expanded") === "true";
+}
+
+function openDotGainPopover() {
+  dotGainTrigger.setAttribute("aria-expanded", "true");
+  dotGainPopover.hidden = false;
+  document.addEventListener("mousedown", handleDotGainOutsideClick);
+  document.addEventListener("keydown", handleDotGainEscape);
+}
+
+function closeDotGainPopover() {
+  dotGainTrigger.setAttribute("aria-expanded", "false");
+  dotGainPopover.hidden = true;
+  document.removeEventListener("mousedown", handleDotGainOutsideClick);
+  document.removeEventListener("keydown", handleDotGainEscape);
+}
+
+function handleDotGainOutsideClick(event) {
+  if (
+    !dotGainPopover.contains(event.target) &&
+    !dotGainTrigger.contains(event.target)
+  ) {
+    closeDotGainPopover();
+  }
+}
+
+function handleDotGainEscape(event) {
+  if (event.key === "Escape") {
+    closeDotGainPopover();
+    dotGainTrigger.focus();
+  }
+}
+
+dotGainTrigger.addEventListener("click", () => {
+  if (isDotGainPopoverOpen()) {
+    closeDotGainPopover();
+  } else {
+    openDotGainPopover();
+  }
+});
+
+lpiSlider.addEventListener("input", () => {
+  syncLpiValue();
+  requestDraw();
 });
 
 window.addEventListener("resize", resizeCanvas);
 
 syncSingleControl();
 syncCmykControls();
+syncLpiValue();
 setMode("single");
 resizeCanvas();
