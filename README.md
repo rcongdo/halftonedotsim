@@ -13,7 +13,7 @@ An **LPI** slider centered below the halftone half lets you sweep through screen
 
 ## Try it live
 
-A live build of this work (from a fork) is hosted at <https://chiptoe-svg.github.io/halftonedotsim/> — open it in any modern browser to play with the visualizer without cloning.
+A live demo is hosted at <https://rcongdo.github.io/halftonedotsim/> — open it in any modern browser to play with the visualizer without cloning.
 
 ## Run locally
 
