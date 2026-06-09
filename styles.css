@@ -47,6 +47,7 @@ body {
 }
 
 .visualizer {
+  position: relative;
   display: flex;
   min-height: 0;
   padding: clamp(16px, 3vw, 34px);
@@ -62,6 +63,78 @@ body {
   border-radius: 8px;
   background: var(--panel);
   box-shadow: var(--shadow);
+}
+
+.microscope-toolbar {
+  position: absolute;
+  top: clamp(24px, 3vw + 8px, 46px);
+  right: clamp(24px, 3vw + 8px, 46px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(50% - clamp(28px, 4vw, 56px));
+  padding: 5px;
+  border: 1px solid rgba(16, 16, 16, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 250, 240, 0.9);
+  box-shadow: 0 10px 26px rgba(38, 31, 20, 0.16);
+  backdrop-filter: blur(14px);
+  z-index: 5;
+}
+
+.preview-toggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(231, 221, 206, 0.68);
+}
+
+.preview-button,
+.icon-command {
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  padding: 8px 10px;
+  text-transform: uppercase;
+}
+
+.preview-button {
+  min-width: 58px;
+  background: transparent;
+  color: #51493d;
+}
+
+.preview-button.is-active,
+.icon-command {
+  background: var(--ink);
+  color: var(--panel);
+}
+
+.icon-command.is-active {
+  background: var(--accent);
+}
+
+.preview-button:focus-visible,
+.icon-command:focus-visible {
+  outline: 3px solid rgba(31, 111, 139, 0.32);
+  outline-offset: 3px;
+}
+
+.icon-command:hover,
+.preview-button.is-active:hover {
+  background: var(--accent);
+}
+
+.preview-button:not(.is-active):hover {
+  color: var(--ink);
+  background: rgba(255, 250, 240, 0.72);
 }
 
 .lpi-row {
@@ -501,6 +574,14 @@ input[type="range"]:focus-visible {
 
   .visualizer {
     padding: 12px;
+  }
+
+  .microscope-toolbar {
+    top: 20px;
+    right: 20px;
+    max-width: calc(100% - 40px);
+    flex-wrap: wrap;
+    justify-content: flex-end;
   }
 
   #halftoneCanvas {
