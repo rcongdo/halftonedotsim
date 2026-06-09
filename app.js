@@ -18,6 +18,12 @@ const dotGainTrigger = document.querySelector("#dotGainTrigger");
 const dotGainPopover = document.querySelector("#dotGainPopover");
 const lpiSlider = document.querySelector("#lpiSlider");
 const lpiValue = document.querySelector("#lpiValue");
+const microscopeToolbar = document.querySelector("#microscopeToolbar");
+const microscopeVideo = document.querySelector("#microscopeVideo");
+const flatPreviewButton = document.querySelector("#flatPreviewButton");
+const microscopePreviewButton = document.querySelector("#microscopePreviewButton");
+const freezeMicroscopeButton = document.querySelector("#freezeMicroscopeButton");
+const saveMicroscopeButton = document.querySelector("#saveMicroscopeButton");
 const paperRgb = [255, 250, 240];
 // GRACoL2013 CRPC6 CMYK-to-sRGB samples for paper, primaries, and overprints.
 const gracolNeugebauerRgb = [
@@ -88,6 +94,12 @@ const inkScreens = [
 
 let mode = "single";
 let singleCoverage = Number(singleSlider.value);
+let microscopeMode = false;
+let microscopeFrozen = false;
+let microscopeStream = null;
+let microscopeError = "";
+
+const frozenMicroscopeCanvas = document.createElement("canvas");
 
 function readDotGainInputs() {
   return {
@@ -164,6 +176,20 @@ function syncLpiValue() {
   lpiValue.textContent = String(lpi);
 }
 
+function syncMicroscopeToolbar() {
+  const isCmyk = mode === "cmyk";
+
+  microscopeToolbar.hidden = !isCmyk;
+  flatPreviewButton.classList.toggle("is-active", !microscopeMode);
+  microscopePreviewButton.classList.toggle("is-active", microscopeMode);
+  flatPreviewButton.setAttribute("aria-pressed", String(!microscopeMode));
+  microscopePreviewButton.setAttribute("aria-pressed", String(microscopeMode));
+  freezeMicroscopeButton.hidden = !isCmyk || !microscopeMode;
+  saveMicroscopeButton.hidden = !isCmyk || !microscopeMode;
+  freezeMicroscopeButton.classList.toggle("is-active", microscopeFrozen);
+  freezeMicroscopeButton.textContent = microscopeFrozen ? "Live" : "Freeze";
+}
+
 function setMode(nextMode) {
   mode = nextMode;
   controlStrip.dataset.mode = mode;
@@ -172,6 +198,10 @@ function setMode(nextMode) {
   singleControls.hidden = mode !== "single";
   cmykControls.hidden = mode !== "cmyk";
 
+  if (mode !== "cmyk") {
+    setMicroscopeMode(false);
+  }
+
   modeButtons.forEach((button) => {
     const isActive = button.dataset.mode === mode;
 
@@ -179,6 +209,7 @@ function setMode(nextMode) {
     button.setAttribute("aria-pressed", String(isActive));
   });
 
+  syncMicroscopeToolbar();
   drawVisualizer();
 }
 
@@ -189,6 +220,95 @@ function resizeCanvas() {
   canvas.width = Math.round(bounds.width * ratio);
   canvas.height = Math.round(bounds.height * ratio);
   drawVisualizer();
+}
+
+async function startMicroscopeStream() {
+  if (microscopeStream) {
+    return true;
+  }
+
+  if (!navigator.mediaDevices?.getUserMedia) {
+    microscopeError = "Camera not available";
+    return false;
+  }
+
+  try {
+    microscopeStream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        facingMode: "environment",
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+      },
+    });
+    microscopeVideo.srcObject = microscopeStream;
+    microscopeError = "";
+    await microscopeVideo.play();
+    return true;
+  } catch (error) {
+    microscopeError = "Camera blocked";
+    microscopeStream = null;
+    microscopeVideo.srcObject = null;
+    return false;
+  }
+}
+
+function stopMicroscopeStream() {
+  if (!microscopeStream) {
+    return;
+  }
+
+  microscopeStream.getTracks().forEach((track) => track.stop());
+  microscopeStream = null;
+  microscopeVideo.srcObject = null;
+}
+
+async function setMicroscopeMode(enabled) {
+  if (enabled) {
+    microscopeMode = await startMicroscopeStream();
+  } else {
+    microscopeMode = false;
+    microscopeFrozen = false;
+    stopMicroscopeStream();
+  }
+
+  syncMicroscopeToolbar();
+  requestDraw();
+}
+
+function hasLiveMicroscopeFrame() {
+  return (
+    microscopeVideo.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+    microscopeVideo.videoWidth > 0 &&
+    microscopeVideo.videoHeight > 0
+  );
+}
+
+function freezeMicroscopeFrame() {
+  if (!hasLiveMicroscopeFrame()) {
+    return false;
+  }
+
+  frozenMicroscopeCanvas.width = microscopeVideo.videoWidth;
+  frozenMicroscopeCanvas.height = microscopeVideo.videoHeight;
+  frozenMicroscopeCanvas
+    .getContext("2d")
+    .drawImage(microscopeVideo, 0, 0, frozenMicroscopeCanvas.width, frozenMicroscopeCanvas.height);
+  microscopeFrozen = true;
+  syncMicroscopeToolbar();
+  requestDraw();
+  return true;
+}
+
+function toggleMicroscopeFreeze() {
+  if (microscopeFrozen) {
+    microscopeFrozen = false;
+    syncMicroscopeToolbar();
+    requestDraw();
+    return;
+  }
+
+  freezeMicroscopeFrame();
 }
 
 function drawPaper(width, height) {
@@ -543,6 +663,65 @@ function drawInkScreen(screen, clip, width, height, cell) {
   compositeInkScreen(renderInkScreen(screen, clip, width, height, cell), width, height);
 }
 
+function drawCoverImage(source, x, y, width, height, sourceWidth, sourceHeight) {
+  const sourceRatio = sourceWidth / sourceHeight;
+  const targetRatio = width / height;
+  let sx = 0;
+  let sy = 0;
+  let sw = sourceWidth;
+  let sh = sourceHeight;
+
+  if (sourceRatio > targetRatio) {
+    sw = sourceHeight * targetRatio;
+    sx = (sourceWidth - sw) / 2;
+  } else {
+    sh = sourceWidth / targetRatio;
+    sy = (sourceHeight - sh) / 2;
+  }
+
+  ctx.drawImage(source, sx, sy, sw, sh, x, y, width, height);
+}
+
+function drawMicroscopePlaceholder(splitX, width, height) {
+  ctx.fillStyle = "#111";
+  ctx.fillRect(splitX, 0, width - splitX, height);
+  ctx.fillStyle = "rgba(255, 250, 240, 0.84)";
+  ctx.font = "700 14px system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(microscopeError || "Waiting for camera", splitX + (width - splitX) / 2, height / 2);
+}
+
+function drawMicroscopeView(splitX, width, height) {
+  if (microscopeFrozen && frozenMicroscopeCanvas.width > 0) {
+    drawCoverImage(
+      frozenMicroscopeCanvas,
+      splitX,
+      0,
+      width - splitX,
+      height,
+      frozenMicroscopeCanvas.width,
+      frozenMicroscopeCanvas.height,
+    );
+    return;
+  }
+
+  if (hasLiveMicroscopeFrame()) {
+    drawCoverImage(
+      microscopeVideo,
+      splitX,
+      0,
+      width - splitX,
+      height,
+      microscopeVideo.videoWidth,
+      microscopeVideo.videoHeight,
+    );
+    return;
+  }
+
+  drawMicroscopePlaceholder(splitX, width, height);
+}
+
 function drawCmykTone(splitX, width, height) {
   ctx.fillStyle = getProfiledCmykToneColor();
   ctx.fillRect(splitX, 0, width - splitX, height);
@@ -578,7 +757,11 @@ function drawSingleView(width, height, cell, splitX) {
 }
 
 function drawCmykView(width, height, cell, splitX) {
-  drawCmykTone(splitX, width, height);
+  if (microscopeMode) {
+    drawMicroscopeView(splitX, width, height);
+  } else {
+    drawCmykTone(splitX, width, height);
+  }
 
   if (highLpiCrossfadeAlpha(cell) < 1) {
     inkScreens.forEach((screen) => {
@@ -622,6 +805,17 @@ function drawVisualizer() {
   ctx.globalCompositeOperation = "source-over";
 }
 
+function saveCompositeImage() {
+  drawVisualizer();
+
+  const link = document.createElement("a");
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+
+  link.download = `halftone-microscope-${timestamp}.png`;
+  link.href = canvas.toDataURL("image/png");
+  link.click();
+}
+
 modeButtons.forEach((button) => {
   button.addEventListener("click", () => {
     setMode(button.dataset.mode);
@@ -638,6 +832,10 @@ function requestDraw() {
   requestAnimationFrame(() => {
     drawScheduled = false;
     drawVisualizer();
+
+    if (mode === "cmyk" && microscopeMode && !microscopeFrozen) {
+      requestDraw();
+    }
   });
 }
 
@@ -729,6 +927,19 @@ dotGainTrigger.addEventListener("click", () => {
     openDotGainPopover();
   }
 });
+
+flatPreviewButton.addEventListener("click", () => {
+  setMicroscopeMode(false);
+});
+
+microscopePreviewButton.addEventListener("click", () => {
+  setMicroscopeMode(true);
+});
+
+freezeMicroscopeButton.addEventListener("click", toggleMicroscopeFreeze);
+saveMicroscopeButton.addEventListener("click", saveCompositeImage);
+microscopeVideo.addEventListener("loadedmetadata", requestDraw);
+microscopeVideo.addEventListener("playing", requestDraw);
 
 lpiSlider.addEventListener("input", () => {
   syncLpiValue();

@@ -4,12 +4,44 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Halftone Dot Visualizer</title>
-    <link rel="stylesheet" href="styles.css?v=2026-06-09-1" />
+    <link rel="stylesheet" href="styles.css?v=2026-06-09-2" />
   </head>
   <body>
     <main class="app-shell">
       <section class="visualizer" aria-label="Halftone dot preview">
         <canvas id="halftoneCanvas"></canvas>
+        <div
+          class="microscope-toolbar"
+          id="microscopeToolbar"
+          aria-label="Microscope preview controls"
+          hidden
+        >
+          <div class="preview-toggle" role="group" aria-label="Right preview source">
+            <button
+              id="flatPreviewButton"
+              class="preview-button is-active"
+              type="button"
+              aria-pressed="true"
+            >
+              Color
+            </button>
+            <button
+              id="microscopePreviewButton"
+              class="preview-button"
+              type="button"
+              aria-pressed="false"
+            >
+              Microscope
+            </button>
+          </div>
+          <button id="freezeMicroscopeButton" class="icon-command" type="button" hidden>
+            Freeze
+          </button>
+          <button id="saveMicroscopeButton" class="icon-command" type="button" hidden>
+            Save
+          </button>
+        </div>
+        <video id="microscopeVideo" autoplay muted playsinline hidden></video>
       </section>
 
       <section class="lpi-row" aria-label="Halftone screen frequency">
@@ -254,6 +286,6 @@
       </section>
     </main>
 
-    <script src="app.js?v=2026-06-09-1"></script>
+    <script src="app.js?v=2026-06-09-2"></script>
   </body>
 </html>
