@@ -204,11 +204,43 @@ h1 {
   text-transform: uppercase;
 }
 
+.angle-control {
+  --track-color: #807466;
+  --thumb-color: #51493d;
+  display: grid;
+  grid-template-columns: auto minmax(42px, max-content);
+  gap: 6px 10px;
+  min-width: 0;
+  color: #51493d;
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.angle-control output {
+  justify-self: end;
+  color: #51493d;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+.angle-control input {
+  grid-column: 1 / -1;
+  height: 26px;
+}
+
+.single-controls .angle-control {
+  margin-top: 2px;
+}
+
 .controls-panel {
   min-width: 0;
 }
 
 .single-controls {
+  display: grid;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -216,6 +248,12 @@ h1 {
   display: grid;
   grid-template-columns: repeat(4, minmax(104px, 1fr));
   gap: 12px clamp(12px, 2vw, 22px);
+  min-width: 0;
+}
+
+.channel-group {
+  display: grid;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -492,6 +530,10 @@ input[type="range"]:focus-visible {
   }
 
   .slider-control {
+    grid-column: 1 / -1;
+  }
+
+  .single-controls .angle-control {
     grid-column: 1 / -1;
   }
 
