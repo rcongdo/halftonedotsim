@@ -4,12 +4,29 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Halftone Dot Visualizer</title>
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=2026-06-09-1" />
   </head>
   <body>
     <main class="app-shell">
       <section class="visualizer" aria-label="Halftone dot preview">
         <canvas id="halftoneCanvas"></canvas>
+      </section>
+
+      <section class="lpi-row" aria-label="Halftone screen frequency">
+        <div class="lpi-control">
+          <label class="lpi-label" for="lpiSlider">LPI</label>
+          <input
+            id="lpiSlider"
+            class="lpi-slider"
+            type="range"
+            min="25"
+            max="200"
+            step="1"
+            value="25"
+          />
+          <span id="lpiValue" class="lpi-value">25</span>
+        </div>
+        <div class="lpi-row-right" aria-hidden="true"></div>
       </section>
 
       <section
@@ -59,69 +76,184 @@
                 step="1"
               />
             </label>
+            <label class="angle-control" for="singleAngleSlider">
+              <span>Angle</span>
+              <output id="singleAngleValue" for="singleAngleSlider">45°</output>
+              <input
+                id="singleAngleSlider"
+                type="range"
+                min="0"
+                max="90"
+                value="45"
+                step="1"
+              />
+            </label>
           </div>
 
           <div class="cmyk-controls" id="cmykControls" hidden>
-            <label class="channel-control channel-cyan" for="cyanSlider">
-              <span>C</span>
-              <output id="cyanValue" for="cyanSlider">50%</output>
-              <input
-                id="cyanSlider"
-                data-channel="c"
-                type="range"
-                min="0"
-                max="100"
-                value="50"
-                step="1"
-              />
-            </label>
+            <div class="channel-group">
+              <label class="channel-control channel-cyan" for="cyanSlider">
+                <span>C</span>
+                <output id="cyanValue" for="cyanSlider">50%</output>
+                <input
+                  id="cyanSlider"
+                  data-channel="c"
+                  type="range"
+                  min="0"
+                  max="100"
+                  value="50"
+                  step="1"
+                />
+              </label>
+              <label class="angle-control channel-cyan" for="cyanAngleSlider">
+                <span>Angle</span>
+                <output id="cyanAngleValue" for="cyanAngleSlider">15°</output>
+                <input
+                  id="cyanAngleSlider"
+                  data-channel="c"
+                  type="range"
+                  min="0"
+                  max="90"
+                  value="15"
+                  step="1"
+                />
+              </label>
+            </div>
 
-            <label class="channel-control channel-magenta" for="magentaSlider">
-              <span>M</span>
-              <output id="magentaValue" for="magentaSlider">50%</output>
-              <input
-                id="magentaSlider"
-                data-channel="m"
-                type="range"
-                min="0"
-                max="100"
-                value="50"
-                step="1"
-              />
-            </label>
+            <div class="channel-group">
+              <label class="channel-control channel-magenta" for="magentaSlider">
+                <span>M</span>
+                <output id="magentaValue" for="magentaSlider">50%</output>
+                <input
+                  id="magentaSlider"
+                  data-channel="m"
+                  type="range"
+                  min="0"
+                  max="100"
+                  value="50"
+                  step="1"
+                />
+              </label>
+              <label class="angle-control channel-magenta" for="magentaAngleSlider">
+                <span>Angle</span>
+                <output id="magentaAngleValue" for="magentaAngleSlider">75°</output>
+                <input
+                  id="magentaAngleSlider"
+                  data-channel="m"
+                  type="range"
+                  min="0"
+                  max="90"
+                  value="75"
+                  step="1"
+                />
+              </label>
+            </div>
 
-            <label class="channel-control channel-yellow" for="yellowSlider">
-              <span>Y</span>
-              <output id="yellowValue" for="yellowSlider">50%</output>
-              <input
-                id="yellowSlider"
-                data-channel="y"
-                type="range"
-                min="0"
-                max="100"
-                value="50"
-                step="1"
-              />
-            </label>
+            <div class="channel-group">
+              <label class="channel-control channel-yellow" for="yellowSlider">
+                <span>Y</span>
+                <output id="yellowValue" for="yellowSlider">50%</output>
+                <input
+                  id="yellowSlider"
+                  data-channel="y"
+                  type="range"
+                  min="0"
+                  max="100"
+                  value="50"
+                  step="1"
+                />
+              </label>
+              <label class="angle-control channel-yellow" for="yellowAngleSlider">
+                <span>Angle</span>
+                <output id="yellowAngleValue" for="yellowAngleSlider">0°</output>
+                <input
+                  id="yellowAngleSlider"
+                  data-channel="y"
+                  type="range"
+                  min="0"
+                  max="90"
+                  value="0"
+                  step="1"
+                />
+              </label>
+            </div>
 
-            <label class="channel-control channel-black" for="blackSlider">
-              <span>K</span>
-              <output id="blackValue" for="blackSlider">50%</output>
-              <input
-                id="blackSlider"
-                data-channel="k"
-                type="range"
-                min="0"
-                max="100"
-                value="50"
-                step="1"
-              />
-            </label>
+            <div class="channel-group">
+              <label class="channel-control channel-black" for="blackSlider">
+                <span>K</span>
+                <output id="blackValue" for="blackSlider">50%</output>
+                <input
+                  id="blackSlider"
+                  data-channel="k"
+                  type="range"
+                  min="0"
+                  max="100"
+                  value="50"
+                  step="1"
+                />
+              </label>
+              <label class="angle-control channel-black" for="blackAngleSlider">
+                <span>Angle</span>
+                <output id="blackAngleValue" for="blackAngleSlider">45°</output>
+                <input
+                  id="blackAngleSlider"
+                  data-channel="k"
+                  type="range"
+                  min="0"
+                  max="90"
+                  value="45"
+                  step="1"
+                />
+              </label>
+            </div>
+          </div>
+
+          <div class="dot-gain-controls">
+            <button
+              id="dotGainTrigger"
+              class="dot-gain-trigger"
+              type="button"
+              aria-expanded="false"
+              aria-controls="dotGainPopover"
+            >
+              Dot Gain Settings
+            </button>
+            <div id="dotGainPopover" class="dot-gain-popover" hidden>
+              <label class="dot-gain-input" for="dotGainInput">
+                <span>Dot Gain</span>
+                <span class="input-row">
+                  <input id="dotGainInput" type="number" min="0" max="40" step="1" value="18" />
+                  <span class="suffix">%</span>
+                </span>
+              </label>
+              <label class="dot-gain-input" for="minDotInput">
+                <span>Min Dot</span>
+                <span class="input-row">
+                  <input id="minDotInput" type="number" min="0" max="15" step="0.5" value="1" />
+                  <span class="suffix">%</span>
+                </span>
+              </label>
+              <label class="dot-gain-input" for="minDotPrintedInput">
+                <span>Min Dot Printed</span>
+                <span class="input-row">
+                  <input id="minDotPrintedInput" type="number" min="0" max="25" step="0.5" value="3" />
+                  <span class="suffix">%</span>
+                </span>
+              </label>
+              <button
+                id="dotGainApplyButton"
+                class="dot-gain-apply"
+                type="button"
+                disabled
+              >
+                Apply
+              </button>
+            </div>
           </div>
         </div>
       </section>
     </main>
 
-    <script src="app.js"></script>
+    <script src="app.js?v=2026-06-09-1"></script>
   </body>
 </html>

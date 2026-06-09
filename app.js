@@ -7,7 +7,17 @@ const singleControls = document.querySelector("#singleControls");
 const cmykControls = document.querySelector("#cmykControls");
 const singleSlider = document.querySelector("#coverageSlider");
 const singleValue = document.querySelector("#coverageValue");
+const singleAngleSlider = document.querySelector("#singleAngleSlider");
+const singleAngleValue = document.querySelector("#singleAngleValue");
 const ctx = canvas.getContext("2d");
+const dotGainInput = document.querySelector("#dotGainInput");
+const minDotInput = document.querySelector("#minDotInput");
+const minDotPrintedInput = document.querySelector("#minDotPrintedInput");
+const dotGainApplyButton = document.querySelector("#dotGainApplyButton");
+const dotGainTrigger = document.querySelector("#dotGainTrigger");
+const dotGainPopover = document.querySelector("#dotGainPopover");
+const lpiSlider = document.querySelector("#lpiSlider");
+const lpiValue = document.querySelector("#lpiValue");
 const paperRgb = [255, 250, 240];
 // GRACoL2013 CRPC6 CMYK-to-sRGB samples for paper, primaries, and overprints.
 const gracolNeugebauerRgb = [
@@ -29,28 +39,48 @@ const gracolNeugebauerRgb = [
   [0, 0, 0],
 ];
 
+const gracolChannelOrder = ["c", "m", "y", "k"];
+const gracolCoatedTviAt50 = {
+  c: 0.12,
+  m: 0.14,
+  y: 0.13,
+  k: 0.18,
+};
+
 const inkScreens = [
   {
     angle: 15,
+    channel: "c",
     color: "rgb(0, 162, 227)",
+    angleOutput: document.querySelector("#cyanAngleValue"),
+    angleSlider: document.querySelector("#cyanAngleSlider"),
     output: document.querySelector("#cyanValue"),
     slider: document.querySelector("#cyanSlider"),
   },
   {
     angle: 75,
+    channel: "m",
     color: "rgb(230, 0, 125)",
+    angleOutput: document.querySelector("#magentaAngleValue"),
+    angleSlider: document.querySelector("#magentaAngleSlider"),
     output: document.querySelector("#magentaValue"),
     slider: document.querySelector("#magentaSlider"),
   },
   {
     angle: 0,
+    channel: "y",
     color: "rgb(255, 237, 0)",
+    angleOutput: document.querySelector("#yellowAngleValue"),
+    angleSlider: document.querySelector("#yellowAngleSlider"),
     output: document.querySelector("#yellowValue"),
     slider: document.querySelector("#yellowSlider"),
   },
   {
     angle: 45,
+    channel: "k",
     color: "rgb(28, 28, 26)",
+    angleOutput: document.querySelector("#blackAngleValue"),
+    angleSlider: document.querySelector("#blackAngleSlider"),
     output: document.querySelector("#blackValue"),
     slider: document.querySelector("#blackSlider"),
   },
@@ -59,10 +89,52 @@ const inkScreens = [
 let mode = "single";
 let singleCoverage = Number(singleSlider.value);
 
+function readDotGainInputs() {
+  return {
+    dotGain: Math.max(0, Number(dotGainInput.value) / 100) || 0,
+    minDot: Math.max(0, Number(minDotInput.value) / 100) || 0,
+    minDotPrinted: Math.max(0, Number(minDotPrintedInput.value) / 100) || 0,
+  };
+}
+
+let appliedDotGainParams = readDotGainInputs();
+
+function getDotGainParams() {
+  return appliedDotGainParams;
+}
+
+function dotGainInputsMatchApplied() {
+  const live = readDotGainInputs();
+
+  return (
+    live.dotGain === appliedDotGainParams.dotGain &&
+    live.minDot === appliedDotGainParams.minDot &&
+    live.minDotPrinted === appliedDotGainParams.minDotPrinted
+  );
+}
+
+function syncDotGainApplyButton() {
+  dotGainApplyButton.disabled = dotGainInputsMatchApplied();
+}
+
+function applyDotGainSettings() {
+  appliedDotGainParams = readDotGainInputs();
+  syncDotGainApplyButton();
+  drawVisualizer();
+}
+
 function syncSingleControl() {
   singleCoverage = Number(singleSlider.value);
   singleSlider.style.setProperty("--track-fill", `${singleCoverage}%`);
   singleValue.textContent = String(singleCoverage);
+}
+
+function syncSingleAngleControl() {
+  const angle = Number(singleAngleSlider.value);
+  const fillPercent = (angle / 90) * 100;
+
+  singleAngleSlider.style.setProperty("--track-fill", `${fillPercent}%`);
+  singleAngleValue.textContent = `${angle}°`;
 }
 
 function syncCmykControls() {
@@ -72,6 +144,24 @@ function syncCmykControls() {
     screen.slider.style.setProperty("--track-fill", `${amount}%`);
     screen.output.textContent = `${amount}%`;
   });
+}
+
+function syncCmykAngleControls() {
+  inkScreens.forEach((screen) => {
+    const angle = Number(screen.angleSlider.value);
+    const fillPercent = (angle / 90) * 100;
+
+    screen.angleSlider.style.setProperty("--track-fill", `${fillPercent}%`);
+    screen.angleOutput.textContent = `${angle}°`;
+  });
+}
+
+function syncLpiValue() {
+  const lpi = Number(lpiSlider.value);
+  const fillPercent = ((lpi - 25) / (200 - 25)) * 100;
+
+  lpiSlider.style.setProperty("--track-fill", `${fillPercent}%`);
+  lpiValue.textContent = String(lpi);
 }
 
 function setMode(nextMode) {
@@ -104,21 +194,84 @@ function resizeCanvas() {
 function drawPaper(width, height) {
   ctx.fillStyle = "#fffaf0";
   ctx.fillRect(0, 0, width, height);
-
-  ctx.globalAlpha = 0.26;
-  ctx.fillStyle = "#cabda8";
-
-  for (let y = 18; y < height; y += 36) {
-    ctx.fillRect(0, y, width, 1);
-  }
-
-  ctx.globalAlpha = 1;
 }
 
 function smoothstep(start, end, current) {
   const progress = Math.min(Math.max((current - start) / (end - start), 0), 1);
 
   return progress * progress * (3 - 2 * progress);
+}
+
+function bell(c) {
+  return 4 * c * (1 - c);
+}
+
+function bloomDecay(c, minDotFrac) {
+  const range = 0.5 - minDotFrac;
+
+  if (range <= 0) {
+    return 0;
+  }
+
+  const t = (c - minDotFrac) / range;
+
+  return Math.max(0, Math.min(1, 1 - t));
+}
+
+function pressChannelScale(channel) {
+  const channelTvi = gracolCoatedTviAt50[channel];
+
+  if (channelTvi === undefined || gracolCoatedTviAt50.k === 0) {
+    return 1;
+  }
+
+  return channelTvi / gracolCoatedTviAt50.k;
+}
+
+function pressEffectiveCoverage(cFrac, params, channelScale) {
+  if (cFrac <= 0) {
+    return 0;
+  }
+
+  if (cFrac < params.minDot) {
+    return 0;
+  }
+
+  if (cFrac >= 1) {
+    return 1;
+  }
+
+  const scale = channelScale ?? 1;
+  const bloomAmplitude = Math.max(0, params.minDotPrinted - params.minDot);
+  const bloomTerm = bloomAmplitude * bloomDecay(cFrac, params.minDot);
+  const spreadTerm = params.dotGain * scale * bell(cFrac);
+
+  return Math.min(1, cFrac + bloomTerm + spreadTerm);
+}
+
+function pressEffectiveAmount(rawAmount, channelScale) {
+  const cFrac = rawAmount / 100;
+  const effective = pressEffectiveCoverage(
+    cFrac,
+    getDotGainParams(),
+    channelScale,
+  );
+
+  return effective * 100;
+}
+
+function applyGracolTvi(cFrac, channel) {
+  if (cFrac <= 0) {
+    return 0;
+  }
+
+  if (cFrac >= 1) {
+    return 1;
+  }
+
+  const tviAt50 = gracolCoatedTviAt50[channel] ?? 0;
+
+  return Math.min(1, cFrac + tviAt50 * bell(cFrac));
 }
 
 function getDotRadius(cell, amount) {
@@ -158,21 +311,11 @@ function getPaperRelativeRgb(rgb) {
   );
 }
 
-function getSingleToneColor() {
-  const amount = singleCoverage / 100;
-  const red = blendChannel(255, 16, amount);
-  const green = blendChannel(250, 16, amount);
-  const blue = blendChannel(240, 16, amount);
-
-  return `rgb(${red}, ${green}, ${blue})`;
-}
-
 function getScreenCoverages() {
   return inkScreens.map((screen) => Number(screen.slider.value) / 100);
 }
 
-function getProfiledCmykToneColor() {
-  const coverages = getScreenCoverages();
+function neugebauerToneColor(coverages) {
   const linearRgb = [0, 0, 0];
 
   gracolNeugebauerRgb.forEach((rgb, mask) => {
@@ -191,28 +334,157 @@ function getProfiledCmykToneColor() {
   )}, ${toSrgbValue(linearRgb[2])})`;
 }
 
-function drawDivider(splitX, height) {
-  ctx.fillStyle = "rgba(16, 16, 16, 0.18)";
+function getSingleToneColor() {
+  return neugebauerToneColor([0, 0, 0, applyGracolTvi(singleCoverage / 100, "k")]);
+}
+
+function getGracolReferenceCoverages() {
+  return inkScreens.map((screen, index) => {
+    const raw = Number(screen.slider.value) / 100;
+
+    return applyGracolTvi(raw, gracolChannelOrder[index]);
+  });
+}
+
+function getProfiledCmykToneColor() {
+  return neugebauerToneColor(getGracolReferenceCoverages());
+}
+
+function getPressSingleToneColor() {
+  const params = getDotGainParams();
+  const effective = pressEffectiveCoverage(singleCoverage / 100, params);
+
+  return neugebauerToneColor([0, 0, 0, effective]);
+}
+
+function getPressCmykToneColor() {
+  const params = getDotGainParams();
+  const coverages = inkScreens.map((screen) => {
+    const raw = Number(screen.slider.value) / 100;
+
+    return pressEffectiveCoverage(raw, params, pressChannelScale(screen.channel));
+  });
+
+  return neugebauerToneColor(coverages);
+}
+
+function highLpiCrossfadeAlpha(cell) {
+  return Math.max(0, Math.min(1, (4 - cell) / 1));
+}
+
+function drawDivider(splitX, height, cell) {
+  const dividerOpacity = 0.18 * (1 - highLpiCrossfadeAlpha(cell));
+
+  if (dividerOpacity <= 0) {
+    return;
+  }
+
+  ctx.fillStyle = `rgba(16, 16, 16, ${dividerOpacity})`;
   ctx.fillRect(splitX - 0.5, 0, 1, height);
+}
+
+function drawHighLpiSmoothing(toneColor, splitX, height, cell) {
+  const alpha = highLpiCrossfadeAlpha(cell);
+
+  if (alpha <= 0) {
+    return;
+  }
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = toneColor;
+  ctx.fillRect(0, 0, splitX, height);
+  ctx.restore();
 }
 
 // Render one ink screen to its own offscreen canvas using normal compositing,
 // so overlapping dots of the same ink merge into a single flat shape rather
 // than darkening each other. The returned canvas is later composited onto the
 // main canvas with `multiply`, so cross-ink overlaps still darken correctly.
+const offscreenPool = new Map();
+const patternCache = new Map();
+const PATTERN_SUPERSAMPLE = 2;
+
+function acquireOffscreen(channel, deviceWidth, deviceHeight) {
+  const key = channel ?? "single";
+  let offscreen = offscreenPool.get(key);
+
+  if (!offscreen) {
+    offscreen = document.createElement("canvas");
+    offscreenPool.set(key, offscreen);
+  }
+
+  if (offscreen.width !== deviceWidth || offscreen.height !== deviceHeight) {
+    offscreen.width = deviceWidth;
+    offscreen.height = deviceHeight;
+  } else {
+    offscreen.width = deviceWidth;
+  }
+
+  return offscreen;
+}
+
+function getDotPattern(color, cell, radius, ratio) {
+  const cacheKey = `${color}|${cell.toFixed(3)}|${radius.toFixed(3)}|${ratio}`;
+  const cached = patternCache.get(cacheKey);
+
+  if (cached) {
+    return cached;
+  }
+
+  const deviceCell = Math.max(2, Math.round(cell * ratio));
+  const tileCell = deviceCell * PATTERN_SUPERSAMPLE;
+  const tileRadius = Math.max(0.5, radius * ratio * PATTERN_SUPERSAMPLE);
+  const pCanvas = document.createElement("canvas");
+
+  pCanvas.width = tileCell;
+  pCanvas.height = tileCell;
+
+  const pCtx = pCanvas.getContext("2d");
+  const corners = [
+    [0, 0],
+    [tileCell, 0],
+    [0, tileCell],
+    [tileCell, tileCell],
+  ];
+
+  pCtx.fillStyle = color;
+  pCtx.beginPath();
+
+  for (const [cx, cy] of corners) {
+    pCtx.moveTo(cx + tileRadius, cy);
+    pCtx.arc(cx, cy, tileRadius, 0, Math.PI * 2);
+  }
+
+  pCtx.fill();
+
+  if (patternCache.size > 64) {
+    patternCache.clear();
+  }
+
+  patternCache.set(cacheKey, pCanvas);
+
+  return pCanvas;
+}
+
+function getScreenAngle(screen) {
+  return Number(screen.angleSlider?.value ?? screen.angle);
+}
+
 function renderInkScreen(screen, clip, width, height, cell) {
-  const amount = Number(screen.slider?.value ?? screen.amount);
+  const rawAmount = Number(screen.slider?.value ?? screen.amount);
+  const amount = pressEffectiveAmount(rawAmount, pressChannelScale(screen.channel));
 
   if (amount <= 0) {
     return null;
   }
 
   const ratio = window.devicePixelRatio || 1;
-  const offscreen = document.createElement("canvas");
-
-  offscreen.width = Math.round(width * ratio);
-  offscreen.height = Math.round(height * ratio);
-
+  const offscreen = acquireOffscreen(
+    screen.channel,
+    Math.round(width * ratio),
+    Math.round(height * ratio),
+  );
   const offCtx = offscreen.getContext("2d");
 
   offCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
@@ -232,19 +504,26 @@ function renderInkScreen(screen, clip, width, height, cell) {
     return null;
   }
 
-  const margin = Math.hypot(width, height);
+  const diagonal = Math.hypot(width, height);
+  const margin = Math.ceil(Math.max(diagonal - width, diagonal - height) / 2 + cell);
 
   offCtx.translate(width / 2, height / 2);
-  offCtx.rotate((screen.angle * Math.PI) / 180);
+  offCtx.rotate((getScreenAngle(screen) * Math.PI) / 180);
   offCtx.translate(-width / 2, -height / 2);
 
-  for (let y = -margin; y < height + margin; y += cell) {
-    for (let x = -margin; x < width + margin; x += cell) {
-      offCtx.beginPath();
-      offCtx.arc(x, y, radius, 0, Math.PI * 2);
-      offCtx.fill();
-    }
+  const patternCanvas = getDotPattern(screen.color, cell, radius, ratio);
+  const pattern = offCtx.createPattern(patternCanvas, "repeat");
+
+  if (pattern.setTransform) {
+    pattern.setTransform(
+      new DOMMatrix().scaleSelf(1 / PATTERN_SUPERSAMPLE),
+    );
   }
+
+  offCtx.imageSmoothingEnabled = true;
+  offCtx.imageSmoothingQuality = "high";
+  offCtx.fillStyle = pattern;
+  offCtx.fillRect(-margin, -margin, width + 2 * margin, height + 2 * margin);
 
   return offscreen;
 }
@@ -279,38 +558,50 @@ function drawSingleView(width, height, cell, splitX) {
     return;
   }
 
-  drawInkScreen(
-    { amount: singleCoverage, angle: -16, color: "#101010" },
-    { height, width: splitX, x: 0, y: 0 },
-    width,
-    height,
-    cell,
-  );
-  drawDivider(splitX, height);
-}
-
-function drawCmykView(width, height, cell, splitX) {
-  drawCmykTone(splitX, width, height);
-
-  inkScreens.forEach((screen) => {
+  if (highLpiCrossfadeAlpha(cell) < 1) {
     drawInkScreen(
-      screen,
+      {
+        amount: singleCoverage,
+        angleSlider: singleAngleSlider,
+        channel: "k",
+        color: "#101010",
+      },
       { height, width: splitX, x: 0, y: 0 },
       width,
       height,
       cell,
     );
-  });
+  }
 
-  drawDivider(splitX, height);
+  drawHighLpiSmoothing(getPressSingleToneColor(), splitX, height, cell);
+  drawDivider(splitX, height, cell);
+}
+
+function drawCmykView(width, height, cell, splitX) {
+  drawCmykTone(splitX, width, height);
+
+  if (highLpiCrossfadeAlpha(cell) < 1) {
+    inkScreens.forEach((screen) => {
+      drawInkScreen(
+        screen,
+        { height, width: splitX, x: 0, y: 0 },
+        width,
+        height,
+        cell,
+      );
+    });
+  }
+
+  drawHighLpiSmoothing(getPressCmykToneColor(), splitX, height, cell);
+  drawDivider(splitX, height, cell);
 }
 
 function drawVisualizer() {
   const ratio = window.devicePixelRatio || 1;
   const width = canvas.width / ratio;
   const height = canvas.height / ratio;
-  const shorterSide = Math.min(width, height);
-  const cell = Math.max(15, Math.min(30, shorterSide / 18));
+  const lpi = Number(lpiSlider.value);
+  const cell = Math.max(2, 600 / lpi);
   const splitX = width / 2;
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -337,11 +628,32 @@ modeButtons.forEach((button) => {
   });
 });
 
+let drawScheduled = false;
+function requestDraw() {
+  if (drawScheduled) {
+    return;
+  }
+
+  drawScheduled = true;
+  requestAnimationFrame(() => {
+    drawScheduled = false;
+    drawVisualizer();
+  });
+}
+
 singleSlider.addEventListener("input", () => {
   syncSingleControl();
 
   if (mode === "single") {
-    drawVisualizer();
+    requestDraw();
+  }
+});
+
+singleAngleSlider.addEventListener("input", () => {
+  syncSingleAngleControl();
+
+  if (mode === "single") {
+    requestDraw();
   }
 });
 
@@ -350,14 +662,85 @@ inkScreens.forEach((screen) => {
     syncCmykControls();
 
     if (mode === "cmyk") {
-      drawVisualizer();
+      requestDraw();
     }
   });
+
+  screen.angleSlider.addEventListener("input", () => {
+    syncCmykAngleControls();
+
+    if (mode === "cmyk") {
+      requestDraw();
+    }
+  });
+});
+
+[dotGainInput, minDotInput, minDotPrintedInput].forEach((input) => {
+  input.addEventListener("input", syncDotGainApplyButton);
+  input.addEventListener("change", syncDotGainApplyButton);
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !dotGainApplyButton.disabled) {
+      event.preventDefault();
+      applyDotGainSettings();
+    }
+  });
+});
+
+dotGainApplyButton.addEventListener("click", applyDotGainSettings);
+
+function isDotGainPopoverOpen() {
+  return dotGainTrigger.getAttribute("aria-expanded") === "true";
+}
+
+function openDotGainPopover() {
+  dotGainTrigger.setAttribute("aria-expanded", "true");
+  dotGainPopover.hidden = false;
+  document.addEventListener("mousedown", handleDotGainOutsideClick);
+  document.addEventListener("keydown", handleDotGainEscape);
+}
+
+function closeDotGainPopover() {
+  dotGainTrigger.setAttribute("aria-expanded", "false");
+  dotGainPopover.hidden = true;
+  document.removeEventListener("mousedown", handleDotGainOutsideClick);
+  document.removeEventListener("keydown", handleDotGainEscape);
+}
+
+function handleDotGainOutsideClick(event) {
+  if (
+    !dotGainPopover.contains(event.target) &&
+    !dotGainTrigger.contains(event.target)
+  ) {
+    closeDotGainPopover();
+  }
+}
+
+function handleDotGainEscape(event) {
+  if (event.key === "Escape") {
+    closeDotGainPopover();
+    dotGainTrigger.focus();
+  }
+}
+
+dotGainTrigger.addEventListener("click", () => {
+  if (isDotGainPopoverOpen()) {
+    closeDotGainPopover();
+  } else {
+    openDotGainPopover();
+  }
+});
+
+lpiSlider.addEventListener("input", () => {
+  syncLpiValue();
+  requestDraw();
 });
 
 window.addEventListener("resize", resizeCanvas);
 
 syncSingleControl();
+syncSingleAngleControl();
 syncCmykControls();
+syncCmykAngleControls();
+syncLpiValue();
 setMode("single");
 resizeCanvas();
