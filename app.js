@@ -5,6 +5,8 @@ const modeButtons = document.querySelectorAll(".mode-button");
 const singleMeter = document.querySelector("#singleMeter");
 const singleControls = document.querySelector("#singleControls");
 const cmykControls = document.querySelector("#cmykControls");
+const ecgOnlyControls = document.querySelectorAll(".ecg-only");
+const violetScreeningToggle = document.querySelector("#violetScreeningToggle");
 const singleSlider = document.querySelector("#coverageSlider");
 const singleValue = document.querySelector("#coverageValue");
 const singleAngleSlider = document.querySelector("#singleAngleSlider");
@@ -92,6 +94,31 @@ const inkScreens = [
   },
 ];
 
+const ecgExtensionScreens = [
+  {
+    angle: 15, channel: "o", color: "rgb(255, 102, 0)",
+    angleOutput: document.querySelector("#orangeAngleValue"),
+    angleSlider: document.querySelector("#orangeAngleSlider"),
+    output: document.querySelector("#orangeValue"),
+    slider: document.querySelector("#orangeSlider"),
+  },
+  {
+    angle: 75, channel: "g", color: "rgb(0, 135, 80)",
+    angleOutput: document.querySelector("#greenAngleValue"),
+    angleSlider: document.querySelector("#greenAngleSlider"),
+    output: document.querySelector("#greenValue"),
+    slider: document.querySelector("#greenSlider"),
+  },
+  {
+    angle: 0, channel: "v", color: "rgb(106, 71, 150)", screening: "am",
+    angleOutput: document.querySelector("#violetAngleValue"),
+    angleSlider: document.querySelector("#violetAngleSlider"),
+    output: document.querySelector("#violetValue"),
+    slider: document.querySelector("#violetSlider"),
+  },
+];
+const allScreens = [...inkScreens, ...ecgExtensionScreens];
+
 let mode = "single";
 let singleCoverage = Number(singleSlider.value);
 let microscopeMode = false;
@@ -150,7 +177,7 @@ function syncSingleAngleControl() {
 }
 
 function syncCmykControls() {
-  inkScreens.forEach((screen) => {
+  allScreens.forEach((screen) => {
     const amount = Number(screen.slider.value);
 
     screen.slider.style.setProperty("--track-fill", `${amount}%`);
@@ -159,7 +186,7 @@ function syncCmykControls() {
 }
 
 function syncCmykAngleControls() {
-  inkScreens.forEach((screen) => {
+  allScreens.forEach((screen) => {
     const angle = Number(screen.angleSlider.value);
     const fillPercent = (angle / 90) * 100;
 
@@ -193,10 +220,15 @@ function syncMicroscopeToolbar() {
 function setMode(nextMode) {
   mode = nextMode;
   controlStrip.dataset.mode = mode;
-  modeTitle.textContent = mode === "single" ? "Dot coverage" : "CMYK screens";
+  modeTitle.textContent = mode === "single"
+    ? "Dot coverage"
+    : mode === "ecg" ? "ECG screens" : "CMYK screens";
   singleMeter.hidden = mode !== "single";
   singleControls.hidden = mode !== "single";
-  cmykControls.hidden = mode !== "cmyk";
+  cmykControls.hidden = mode === "single";
+  ecgOnlyControls.forEach((control) => {
+    control.hidden = mode !== "ecg";
+  });
 
   if (mode !== "cmyk") {
     setMicroscopeMode(false);
@@ -587,6 +619,61 @@ function getDotPattern(color, cell, radius, ratio) {
   return pCanvas;
 }
 
+function hashInt(a, b, c) {
+  let hash = ((a * 1664525) ^ (b * 1013904223) ^ (c * 22695477)) >>> 0;
+  hash ^= hash >>> 16;
+  hash = Math.imul(hash, 0x45d9f3b) >>> 0;
+  hash ^= hash >>> 16;
+  return hash >>> 0;
+}
+
+function getFMDotPattern(color, cell, amount, ratio) {
+  const deviceCell = Math.max(2, Math.round(cell * ratio));
+  const cacheKey = `fm|${color}|${deviceCell}|${Math.round(amount)}`;
+  const cached = patternCache.get(cacheKey);
+
+  if (cached) return cached;
+
+  const tileCell = deviceCell * 4 * PATTERN_SUPERSAMPLE;
+  const radius = Math.max(1, Math.min(2.25, deviceCell * 0.1)) * PATTERN_SUPERSAMPLE;
+  const spacing = Math.max(1.8, radius * 0.9);
+  const dotCapacity = (Math.PI * radius * radius) / (spacing * spacing);
+  const probability = amount >= 100
+    ? 1
+    : Math.min(1, -Math.log1p(-amount / 100) / dotCapacity);
+  const count = Math.ceil(tileCell / spacing);
+  const pCanvas = document.createElement("canvas");
+  pCanvas.width = tileCell;
+  pCanvas.height = tileCell;
+  const pCtx = pCanvas.getContext("2d");
+  pCtx.fillStyle = color;
+
+  for (let row = 0; row < count; row += 1) {
+    for (let column = 0; column < count; column += 1) {
+      const seed = hashInt(column, row, deviceCell);
+      if (seed / 0xffffffff >= probability) continue;
+
+      const x = ((column + ((seed & 0xffff) / 0xffff)) * spacing) % tileCell;
+      const y = ((row + (((seed >>> 16) & 0xffff) / 0xffff)) * spacing) % tileCell;
+      const xs = [x];
+      const ys = [y];
+      if (x < radius) xs.push(x + tileCell);
+      if (x + radius > tileCell) xs.push(x - tileCell);
+      if (y < radius) ys.push(y + tileCell);
+      if (y + radius > tileCell) ys.push(y - tileCell);
+      xs.forEach((dotX) => ys.forEach((dotY) => {
+        pCtx.beginPath();
+        pCtx.arc(dotX, dotY, radius, 0, Math.PI * 2);
+        pCtx.fill();
+      }));
+    }
+  }
+
+  if (patternCache.size > 64) patternCache.clear();
+  patternCache.set(cacheKey, pCanvas);
+  return pCanvas;
+}
+
 function getScreenAngle(screen) {
   return Number(screen.angleSlider?.value ?? screen.angle);
 }
@@ -631,7 +718,9 @@ function renderInkScreen(screen, clip, width, height, cell) {
   offCtx.rotate((getScreenAngle(screen) * Math.PI) / 180);
   offCtx.translate(-width / 2, -height / 2);
 
-  const patternCanvas = getDotPattern(screen.color, cell, radius, ratio);
+  const patternCanvas = screen.screening === "fm"
+    ? getFMDotPattern(screen.color, cell, amount, ratio)
+    : getDotPattern(screen.color, cell, radius, ratio);
   const pattern = offCtx.createPattern(patternCanvas, "repeat");
 
   if (pattern.setTransform) {
@@ -779,6 +868,36 @@ function drawCmykView(width, height, cell, splitX) {
   drawDivider(splitX, height, cell);
 }
 
+function getEcgToneColor() {
+  const params = getDotGainParams();
+  const linearRgb = paperRgb.map(toLinearRgb);
+  allScreens.forEach((screen) => {
+    const raw = Number(screen.slider.value) / 100;
+    const coverage = pressEffectiveCoverage(raw, params, pressChannelScale(screen.channel));
+    const ink = screen.color.match(/\d+/g).map((value) => toLinearRgb(Number(value)));
+    ink.forEach((transmission, index) => {
+      linearRgb[index] *= 1 - coverage * (1 - transmission);
+    });
+  });
+
+  return `rgb(${linearRgb.map(toSrgbValue).join(", ")})`;
+}
+
+function drawEcgView(width, height, cell, splitX) {
+  const toneColor = getEcgToneColor();
+  ctx.fillStyle = toneColor;
+  ctx.fillRect(splitX, 0, width - splitX, height);
+
+  if (highLpiCrossfadeAlpha(cell) < 1) {
+    allScreens.forEach((screen) => {
+      drawInkScreen(screen, { height, width: splitX, x: 0, y: 0 }, width, height, cell);
+    });
+  }
+
+  drawHighLpiSmoothing(toneColor, splitX, height, cell);
+  drawDivider(splitX, height, cell);
+}
+
 function drawVisualizer() {
   const ratio = window.devicePixelRatio || 1;
   const width = canvas.width / ratio;
@@ -797,8 +916,10 @@ function drawVisualizer() {
 
   if (mode === "single") {
     drawSingleView(width, height, cell, splitX);
-  } else {
+  } else if (mode === "cmyk") {
     drawCmykView(width, height, cell, splitX);
+  } else {
+    drawEcgView(width, height, cell, splitX);
   }
 
   ctx.globalAlpha = 1;
@@ -855,11 +976,11 @@ singleAngleSlider.addEventListener("input", () => {
   }
 });
 
-inkScreens.forEach((screen) => {
+allScreens.forEach((screen) => {
   screen.slider.addEventListener("input", () => {
     syncCmykControls();
 
-    if (mode === "cmyk") {
+    if (mode !== "single") {
       requestDraw();
     }
   });
@@ -867,10 +988,20 @@ inkScreens.forEach((screen) => {
   screen.angleSlider.addEventListener("input", () => {
     syncCmykAngleControls();
 
-    if (mode === "cmyk") {
+    if (mode !== "single") {
       requestDraw();
     }
   });
+});
+
+violetScreeningToggle.addEventListener("click", () => {
+  const violet = ecgExtensionScreens.find((screen) => screen.channel === "v");
+  violet.screening = violet.screening === "fm" ? "am" : "fm";
+  const isFm = violet.screening === "fm";
+  violetScreeningToggle.textContent = isFm ? "FM" : "AM";
+  violetScreeningToggle.setAttribute("aria-pressed", String(isFm));
+  violetScreeningToggle.setAttribute("aria-label", `Violet screening, currently ${isFm ? "FM" : "AM"}`);
+  requestDraw();
 });
 
 [dotGainInput, minDotInput, minDotPrintedInput].forEach((input) => {

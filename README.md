@@ -8,12 +8,18 @@ The current GitHub Pages demo is:
 
 <https://rcongdo.github.io/halftonedotsim/>
 
+The ECG variation is published separately at:
+
+<https://rcongdo.github.io/halftonedotsim/preview/>
+
 The microscope feature requires browser camera access. Use the hosted HTTPS demo or a localhost server; some browsers block camera access when opening `index.html` directly from disk.
 
 ## Features
 
 - **Single black mode** with ink coverage and screen angle controls.
 - **CMYK mode** with independent coverage and screen angle sliders for C, M, Y, and K.
+- **ECG mode** with independent coverage and screen angle sliders for C, M, Y, K, Orange, Green, and Violet. Orange starts at Cyan's 15° angle, Green at Magenta's 75°, and Violet at Yellow's 0°.
+- **Violet AM/FM screening toggle** in ECG mode. FM uses fixed-size stochastic dots; AM uses the regular angled halftone screen.
 - **Standard offset angles by default:** C 15°, M 75°, Y 0°, K 45°.
 - **LPI simulation** from 25 to 200 LPI, changing dot pitch and visual texture.
 - **Dot gain controls** for Dot Gain, Min Dot, and Min Dot Printed.
@@ -55,7 +61,7 @@ Opening `index.html` directly also works for the simulation, but camera access m
 
 The renderer draws each ink screen to its own offscreen canvas, then composites the ink layers with `multiply`. This keeps same-ink overlaps from darkening while preserving realistic overprint darkening between different inks.
 
-The solid-tone side uses a 16-primary Neugebauer mix sampled from GRACoL-style CMYK values. Dot gain settings affect the simulated print side, while the right-side flat color remains a reference preview.
+The solid-tone side uses a 16-primary Neugebauer mix sampled from GRACoL-style CMYK values. In ECG mode, the flat preview estimates the combined seven-ink transmission. Dot gain settings affect the simulated print side, while the right-side flat color remains a reference preview.
 
 At high LPI values, the app crossfades the halftone side toward the predicted tone so very fine screens visually dissolve into solid color, matching how high-frequency screens appear at viewing distance.
 
@@ -63,6 +69,6 @@ In microscope mode, the app requests a browser video stream with `getUserMedia()
 
 ## Deploying
 
-The app can be deployed to any static host. For GitHub Pages, deploy from the `main` branch at the repository root.
+The app can be deployed to any static host. The standard demo is published at the repository root; the ECG variation is published under `/preview/`, preserving the standard demo at its current URL.
 
 `index.html` references `app.js` and `styles.css` with a version query string. Bump that value when shipping changes so browsers load fresh assets instead of cached copies.

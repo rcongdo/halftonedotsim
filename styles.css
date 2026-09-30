@@ -192,6 +192,10 @@ body {
   grid-template-columns: minmax(170px, 0.72fr) minmax(480px, 2fr);
 }
 
+.control-strip[data-mode="ecg"] {
+  grid-template-columns: minmax(170px, 0.72fr) minmax(480px, 2fr);
+}
+
 .title-group {
   min-width: 0;
 }
@@ -373,6 +377,55 @@ h1 {
 .channel-black {
   --track-color: var(--ink);
   --thumb-color: var(--ink);
+}
+
+.channel-orange {
+  --track-color: #ff6600;
+  --thumb-color: #ff6600;
+}
+
+.channel-green {
+  --track-color: #008750;
+  --thumb-color: #008750;
+}
+
+.channel-violet {
+  --track-color: #6a4796;
+  --thumb-color: #6a4796;
+}
+
+.screening-toggle {
+  justify-self: start;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: #51493d;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.64rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  padding: 5px 10px;
+}
+
+.screening-label {
+  color: #51493d;
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.screening-toggle[aria-pressed="true"] {
+  border-color: var(--violet, #6a4796);
+  background: #6a4796;
+  color: var(--panel);
+}
+
+.screening-toggle:focus-visible {
+  outline: 3px solid rgba(31, 111, 139, 0.32);
+  outline-offset: 3px;
 }
 
 input[type="range"] {
@@ -594,7 +647,11 @@ input[type="range"]:focus-visible {
     padding: 16px;
   }
 
-  .control-strip[data-mode="cmyk"] {
+.control-strip[data-mode="cmyk"] {
+    grid-template-columns: 1fr;
+  }
+
+  .control-strip[data-mode="ecg"] {
     grid-template-columns: 1fr;
   }
 
@@ -605,7 +662,19 @@ input[type="range"]:focus-visible {
     gap: 14px;
   }
 
+  .control-strip[data-mode="ecg"] .title-group {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+  }
+
   .control-strip[data-mode="cmyk"] .mode-toggle {
+    margin-top: 0;
+    flex: 0 0 auto;
+  }
+
+  .control-strip[data-mode="ecg"] .mode-toggle {
     margin-top: 0;
     flex: 0 0 auto;
   }
@@ -636,12 +705,25 @@ input[type="range"]:focus-visible {
     display: block;
   }
 
+  .control-strip[data-mode="ecg"] .title-group {
+    display: block;
+  }
+
   .control-strip[data-mode="cmyk"] .mode-toggle {
+    margin-top: 13px;
+  }
+
+  .control-strip[data-mode="ecg"] .mode-toggle {
     margin-top: 13px;
   }
 
   .cmyk-controls {
     grid-template-columns: 1fr;
+  }
+
+  .control-strip[data-mode="ecg"] .cmyk-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
   }
 
   .meter {
